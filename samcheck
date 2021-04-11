@@ -3,11 +3,11 @@
 # -------------------------------------
 # Helper script for samloader on Termux
 # Github:	lekron42
-# Version:	v1.00
+# Version:	v1.01
 # -------------------------------------
 
 show_usage() {
-	echo "This script automates firmware downloading using samloader"	
+	echo "This script automates firmware downloading using samloader"
 	echo -e "Usage: $(basename $(readlink -f $0)) [argument]\n"
 	echo "Arguments:"
 	echo " -f|--force  : Force update even if no new version is found"
@@ -23,17 +23,16 @@ update_samloader() {
 		echo "Successfully reinstalled samloader."
 	else
 		echo "Uninstalling cancelled.."
-	fi 
-	
+	fi
 	exit 0
 }
 
-if [ $(echo $0 | grep -c "termux") -eq 0 ]; then
-	echo "Script not executed in Termux! Exiting.."
+if [ $(echo "$0" | grep -c "termux") -eq 0 ]; then
+	echo "Script not executed in Termux! Exiting.." 1>&2
 	exit 1
 fi
 
-if [  $# -eq 1 ]; then
+if [ $# -eq 1 ]; then
 	case "$1" in
 		-h|--help)
 			show_usage
@@ -45,12 +44,12 @@ if [  $# -eq 1 ]; then
 			update_samloader
 			;;
 		*)
-			echo "Incorrect input!"
+			echo "Incorrect input!" 1>&2
 			show_usage
 			;;
 	esac
 elif [ $# -gt 1 ]; then
-	echo "Only 1 argument supported. $# given."
+	echo "Only 1 argument supported. $# given." 1>&2
 	exit 1
 fi
 
@@ -63,8 +62,13 @@ if [ "$i_python" -eq 0 ] && [ "$i_python" -eq 0 ]; then
 	case "$r_pg" in
 		y|Y) ;;
 		*) exit 0;;
-	esac
+  	esac
+  	apt-get update
 	pkg install python git
+	if [ $? -ne 0 ]; then
+		echo "Failed to install python and/or git!" 1>&2
+		exit 1
+	fi
 elif [ "$i_python" -eq 0 ]; then
 	echo "Python is required but not installed.."
 	read -p "Install now? (y/N) " r_p
@@ -72,7 +76,12 @@ elif [ "$i_python" -eq 0 ]; then
 		y|Y) ;;
 		*) exit 0;;
 	esac
+	apt-get update
 	pkg install python
+	if [ $? -ne 0 ]; then
+		echo "Failed to install python!" 1>&2
+		exit 1
+	fi
 elif [ "$i_git" -eq 0 ]; then
 	echo "Git is required but not installed.."
 	read -p "Install now? (y/N) " r_g
@@ -80,7 +89,12 @@ elif [ "$i_git" -eq 0 ]; then
 		y|Y) ;;
 		*) exit 0;;
 	esac
+	apt-get update
 	pkg install git
+	if [ $? -ne 0 ]; then
+		echo "Failed to install git!" 1>&2
+		exit 1
+	fi
 fi
 
 if [ $(pip3 list 2> /dev/null | grep -c "samloader") -eq 0 ]; then
@@ -97,7 +111,6 @@ model="$(getprop 'ro.product.model')"
 region="$(getprop 'ro.csc.sales_code')"
 current_pda="$(getprop 'ro.system.build.version.incremental')"
 current_csc="$(getprop 'ro.omc.build.version')"
-filepath="$PREFIX/tmp"
 
 echo -e "- Device:\t$model / $region"
 
@@ -110,9 +123,9 @@ echo -e "- Latest:\t$latest_pda/$latest_csc"
 echo "---------------"
 
 if [ "$current_pda" = "$latest_pda" ] && [ "$current_csc" = "$latest_csc" ]; then
-	if [ ! "$force_download" = true ]; then	
+	if [ "$force_download" = false ]; then
 		echo "No new version found! Use --force to download anyway.."
-	exit 0
+		exit 0
 	fi
 fi
 
@@ -122,22 +135,68 @@ case "$r_download" in
 	*) exit 0;;
 esac
 
+while true; do
+	read -p "Please enter an absolute path to save the file to after downloading (e.g. \"/sdcard/\"): " r_path
+
+	parse_f=$(echo "$r_path" | head -c 1)
+	parse_l=$(echo "$r_path" | tail -c 2)
+
+	if [ "$parse_f" = "\"" ] || [ "$parse_l" = "\"" ]; then
+		echo "Please enter path again without quotes!" 1>&2
+	else
+		if [ "$parse_l" != "/" ]; then
+			r_path="$r_path/"
+		fi
+		if [ -e "$r_path" ]; then
+			break
+		else
+			echo "Path not valid! Please try again.." 1>&2
+		fi
+	fi
+done
+
+touch "$r_path.samcheck" 2> /dev/null
+
+if [ $? -ne 0 ]; then
+	echo "Permission denied! Running \"termux-setup-storage\".." 1>&2
+	echo "Waiting for storage permission.."
+	sleep 1
+	termux-setup-storage
+	count=0
+	while true; do
+		touch "$r_path.samcheck" 2> /dev/null
+		if [ $? -eq 0 ]; then
+			break
+		fi
+		let count++
+		if [ "$count" -gt 30 ]; then
+			echo "Operation timed out!" 1>&2
+			exit 1
+		fi
+		sleep 1
+	done
+fi
+
+if [ -e "$r_path.samcheck" ]; then
+	rm -f "$r_path.samcheck"
+fi
+
 echo "Downloading..."
 
-filename="$(samloader -m $model -r $region download -v $latest_version -O $filepath/. | cut -d' ' -f2)"
-size=$(wc -c "$filepath/$filename" | cut -d' ' -f1)
+filename="$(samloader -m $model -r $region download -v $latest_version -O $r_path/. | cut -d' ' -f2)"
+size=$(wc -c "$r_path$filename" | cut -d' ' -f1)
 
 if [ "$size" -lt 4500000000 ]; then
-	echo -e "\n\nDownload failed.."
-	echo "Please use $(basename $(readlink -f $0)) --repair.\n"
+	echo -e "\n\nDownload failed.." 1>&2
+	echo "Please use $(basename $(readlink -f $0)) --repair.\n" 1>&2
 	exit 1
 fi
 
 echo "Downloading finished!"
 
 encr_protocol="$(echo $filename | tail -c 2)"
-input="$filepath/$filename"
-output="$filepath/$(echo $filename | cut -d. -f1-2)"
+input="$r_path/$filename"
+output="$r_path/$(echo $filename | cut -d. -f1-2)"
 
 echo "Decrypting..."
 samloader -m "$model" -r "$region" decrypt -v "$latest_version" -V "$encr_protocol" -i "$input" -o "$output"
@@ -147,34 +206,7 @@ if [ -e "$input" ]; then
 	rm "$input"
 fi
 
-echo "Moving file to internal storage..."
-
-while true; do
-	read -p "Please enter an absolute path (e.g. \"/sdcard/\"): " r_path
-
-	parse_f=$(echo "$r_path" | head -c 1)
-	parse_l=$(echo "$r_path" | tail -c 2)
-
-
-	if [ "$parse_f" = "\"" ] || [ "$parse_l" = "\"" ]; then
-		echo "Please enter path again without qoutes!"
-	else
-		if [ "$parse_l" != "/" ]; then
-			r_path="$r_path/"
-		fi
-		if [ -e "$r_path" ]; then
-			break
-		else
-			echo "Path not valid! Please try again.."
-		fi
-	fi
-
-done
-
-echo "Moving file to $r_path (might take some time) ..."
-mv "$output" "$r_path".
 echo "Done! Output:"
 echo "$r_path$(echo $filename | cut -d. -f1-2)"
 
 exit 0
-
