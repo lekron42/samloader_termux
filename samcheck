@@ -123,7 +123,7 @@ echo -e "- Latest:\t$latest_pda/$latest_csc"
 echo "---------------"
 
 if [ "$current_pda" = "$latest_pda" ] && [ "$current_csc" = "$latest_csc" ]; then
-	if [ "$force_download" = false ]; then
+	if [ ! "$force_download" = true ]; then
 		echo "No new version found! Use --force to download anyway.."
 		exit 0
 	fi
