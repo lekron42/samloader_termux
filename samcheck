@@ -3,7 +3,7 @@
 # -------------------------------------
 # Helper script for samloader on Termux
 # Github:	lekron42
-# Version:	v1.01
+# Version:	v1.03
 # -------------------------------------
 
 show_usage() {
@@ -56,7 +56,7 @@ fi
 i_python=$(pkg list-installed "python" 2> /dev/null | grep -c "installed")
 i_git=$(pkg list-installed "git" 2> /dev/null | grep -c "installed")
 
-if [ "$i_python" -eq 0 ] && [ "$i_python" -eq 0 ]; then
+if [ "$i_python" -eq 0 ] && [ "$i_git" -eq 0 ]; then
 	echo "Python and Git are not installed but required.."
 	read -p "Install now? (y/N) " r_pg
 	case "$r_pg" in
